@@ -11,6 +11,51 @@ from wikibaseintegrator.models.references import Reference, References
 from wikibaseintegrator.models.snaks import Snak, Snaks
 from wikibaseintegrator.wbi_enums import ActionIfExists, WikibaseRank, WikibaseSnakType
 
+# Normalizer functions
+def normalize_snak(snak):
+    """
+    Normalize a snak. Handles both Snak objects and dictionary representations.
+
+    Args:
+        snak (Snak | dict): A snak object or a dictionary representing a snak.
+
+    Returns:
+        dict: A normalized dictionary representation of the snak.
+    """
+    if isinstance(snak, dict):
+        # Already a dictionary; just ensure it contains the expected keys
+        return {
+            "snaktype": snak.get("snaktype"),
+            "property": snak.get("property"),
+            "datavalue": snak.get("datavalue"),
+        }
+    else:
+        # Assume it's a Snak object
+        return {
+            "snaktype": snak.snaktype,
+            "property": snak.property_number,
+            "datavalue": snak.datavalue,
+        }
+
+
+def normalize_reference(reference):
+    """
+    Normalize a reference by excluding `snaks-order` and normalizing its snaks.
+
+    Args:
+        reference (dict): A dictionary representing a reference.
+
+    Returns:
+        dict: A normalized dictionary representation of the reference.
+    """
+    print("### Normalizing refs ###")
+    print(reference)
+    return {
+        "snaks": {
+            prop: [normalize_snak(snak) for snak in snaks]
+            for prop, snaks in reference["snaks"].items()
+        }
+    }
 
 class Claims(BaseModel):
     def __init__(self) -> None:
@@ -99,21 +144,30 @@ class Claims(BaseModel):
                     if claim not in self.claims[property]:
                         self.claims[property].append(claim)
                 elif action_if_exists == ActionIfExists.MERGE_REFS_OR_APPEND:
+                    print("I AM HERE")
                     claim_exists = False
                     for existing_claim in self.claims[property]:
                         existing_claim_json = existing_claim.get_json()
                         claim_to_add_json = claim.get_json()
-
                         # Check if the values match, including qualifiers
-                        if (claim_to_add_json["mainsnak"]["datavalue"]["value"] == existing_claim_json["mainsnak"]["datavalue"]["value"]) and claim.quals_equal(claim, existing_claim):
-                            claim_exists = True
+                        if "datavalue" in claim_to_add_json["mainsnak"] and "datavalue" in existing_claim_json["mainsnak"]:
+                            if (claim_to_add_json["mainsnak"]["datavalue"]["value"] == existing_claim_json["mainsnak"]["datavalue"]["value"]):
+                                print("Testing qualifiers")
+                                if existing_claim.has_equal_qualifiers(claim):
+                                  claim_exists = True
+                                  print("exists!")
+                        if "datavalue" not in claim_to_add_json["mainsnak"] and "datavalue" not in existing_claim_json["mainsnak"]:
+                            # Both are blank nodes, checking qualifiers    
+                            if claim.quals_equal(claim, existing_claim):
+                                claim_exists = True
 
-                            # Check if current reference block is present on references
-                            if not Claim.ref_present(newitem=claim, olditem=existing_claim):
-                                for ref_to_add in claim.references:
-                                    if ref_to_add not in existing_claim.references:
-                                        existing_claim.references.add(ref_to_add)
-                            break
+                        if claim_exists:
+                                # Check if current reference block is present on references
+                                if not Claim.ref_present(newitem=claim, olditem=existing_claim):
+                                    for ref_to_add in claim.references:
+                                        if ref_to_add not in existing_claim.references:
+                                            existing_claim.references.add(ref_to_add)
+                                break
 
                     # If the claim value does not exist, append it
                     if not claim_exists:
@@ -312,26 +366,32 @@ class Claim(BaseModel):
         return json_data
 
     def has_equal_qualifiers(self, other: Claim) -> bool:
-        # check if the qualifiers are equal with the 'other' object
-        self_qualifiers = copy.deepcopy(self.qualifiers)
-        other_qualifiers = copy.deepcopy(other.qualifiers)
-
-        if len(self_qualifiers) != len(other_qualifiers):
+        """Compare qualifiers with another claim, ignoring datatype and qualifiers-order."""
+        # Access the underlying dictionary of qualifiers
+        self_qualifiers = self.qualifiers.qualifiers  # Access the dictionary
+        other_qualifiers = other.qualifiers.qualifiers  # Access the dictionary
+        print(self_qualifiers)
+        print(other_qualifiers)
+        # Check if both have the same properties
+        if set(self_qualifiers.keys()) != set(other_qualifiers.keys()):
             return False
 
-        for property_number in self_qualifiers.qualifiers:
-            if property_number not in other_qualifiers.qualifiers:
+        # Check if all qualifiers for each property match
+        for property_number, self_snaks in self_qualifiers.items():
+            if property_number not in other_qualifiers:
                 return False
 
-            if len(self_qualifiers.qualifiers[property_number]) != len(other_qualifiers.qualifiers[property_number]):
+            other_snaks = other_qualifiers[property_number]
+
+            # Check if the number of Snaks is the same
+            if len(self_snaks) != len(other_snaks):
                 return False
 
-            flg = [False for _ in range(len(self_qualifiers.qualifiers[property_number]))]
-            for count, i in enumerate(self_qualifiers.qualifiers[property_number]):
-                for q in other_qualifiers:
-                    if i == q:
-                        flg[count] = True
-            if not all(flg):
+            normalized_self_snaks = [normalize_snak(s) for s in self_snaks]
+            normalized_other_snaks = [normalize_snak(s) for s in other_snaks]
+
+            # Ensure all Snaks in self are in other
+            if not all(s in normalized_other_snaks for s in normalized_self_snaks):
                 return False
 
         return True
@@ -422,10 +482,19 @@ class Claim(BaseModel):
             warnings.warn("New item has more or less than 1 reference block.")
             return False
 
-        def ref_equal(oldref: References, newref: References) -> bool:
-            return (len(oldref) == len(newref)) and all(x in oldref for x in newref)
+        def ref_equal(oldref, newref):
+            """Compare two references, ignoring snaks-order and datatype."""
 
-        return any(any(ref_equal(oldref, newref) for oldref in oldrefs) for newref in newrefs)
+            normalized_oldref = normalize_reference(oldref)
+            normalized_newref = normalize_reference(newref)
+
+            return normalized_oldref == normalized_newref
+
+        for newref in newrefs:
+            for oldref in oldrefs:
+                if ref_equal(oldref.get_json(), newref.get_json()):
+                    return True
+        return False
 
     @abstractmethod
     def get_sparql_value(self) -> str:
