@@ -159,6 +159,8 @@ class BaseEntity:
         self.id = str(json_data['id'])
         if 'claims' in json_data:  # 'claims' is named 'statements' in Wikimedia Commons MediaInfo
             self.claims = Claims().from_json(json_data['claims'])
+        if 'statements' in json_data:  # 'claims' is named 'statements' in Wikimedia Commons MediaInfo
+            self.claims = Claims().from_json(json_data['statements'])
 
         return self
 
