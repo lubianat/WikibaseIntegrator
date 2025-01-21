@@ -48,8 +48,6 @@ def normalize_reference(reference):
     Returns:
         dict: A normalized dictionary representation of the reference.
     """
-    print("### Normalizing refs ###")
-    print(reference)
     return {
         "snaks": {
             prop: [normalize_snak(snak) for snak in snaks]
@@ -144,7 +142,6 @@ class Claims(BaseModel):
                     if claim not in self.claims[property]:
                         self.claims[property].append(claim)
                 elif action_if_exists == ActionIfExists.MERGE_REFS_OR_APPEND:
-                    print("I AM HERE")
                     claim_exists = False
                     for existing_claim in self.claims[property]:
                         existing_claim_json = existing_claim.get_json()
@@ -152,10 +149,8 @@ class Claims(BaseModel):
                         # Check if the values match, including qualifiers
                         if "datavalue" in claim_to_add_json["mainsnak"] and "datavalue" in existing_claim_json["mainsnak"]:
                             if (claim_to_add_json["mainsnak"]["datavalue"]["value"] == existing_claim_json["mainsnak"]["datavalue"]["value"]):
-                                print("Testing qualifiers")
                                 if existing_claim.has_equal_qualifiers(claim):
                                   claim_exists = True
-                                  print("exists!")
                         if "datavalue" not in claim_to_add_json["mainsnak"] and "datavalue" not in existing_claim_json["mainsnak"]:
                             # Both are blank nodes, checking qualifiers    
                             if claim.quals_equal(claim, existing_claim):
@@ -370,8 +365,6 @@ class Claim(BaseModel):
         # Access the underlying dictionary of qualifiers
         self_qualifiers = self.qualifiers.qualifiers  # Access the dictionary
         other_qualifiers = other.qualifiers.qualifiers  # Access the dictionary
-        print(self_qualifiers)
-        print(other_qualifiers)
         # Check if both have the same properties
         if set(self_qualifiers.keys()) != set(other_qualifiers.keys()):
             return False
