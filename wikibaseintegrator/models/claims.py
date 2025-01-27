@@ -153,12 +153,13 @@ class Claims(BaseModel):
                                   claim_exists = True
                         if "datavalue" not in claim_to_add_json["mainsnak"] and "datavalue" not in existing_claim_json["mainsnak"]:
                             # Both are blank nodes, checking qualifiers    
-                            if claim.quals_equal(claim, existing_claim):
-                                claim_exists = True
+                            if claim_to_add_json["mainsnak"]['snaktype'] == "somevalue" and existing_claim_json["mainsnak"]['snaktype'] == "somevalue":
+                                if existing_claim.has_equal_qualifiers(claim):
+                                    claim_exists = True
 
                         if claim_exists:
                                 # Check if current reference block is present on references
-                                if not Claim.ref_present(newitem=claim, olditem=existing_claim):
+                                if not Claim.ref_present(newitem=claim, olditem=existing_claim):                                    
                                     for ref_to_add in claim.references:
                                         if ref_to_add not in existing_claim.references:
                                             existing_claim.references.add(ref_to_add)
@@ -444,7 +445,6 @@ class Claim(BaseModel):
 
         oldqual = olditem.qualifiers
         newqual = newitem.qualifiers
-
         return (len(oldqual) == len(newqual)) and all(x in oldqual for x in newqual)
 
     @staticmethod
@@ -480,7 +480,6 @@ class Claim(BaseModel):
 
             normalized_oldref = normalize_reference(oldref)
             normalized_newref = normalize_reference(newref)
-
             return normalized_oldref == normalized_newref
 
         for newref in newrefs:
